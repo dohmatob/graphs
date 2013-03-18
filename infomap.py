@@ -254,7 +254,8 @@ if __name__ == '__main__':
                "~/Downloads/univ_dataset_TSPE.graphml\r\n")
         sys.exit(1)
 
-    if sys.argv[1].endswith(".net") or sys.argv[1].endswith(".paj"):
+    if sys.argv[1].endswith(".net") or sys.argv[1].endswith(".paj")\
+            or sys.argv[1].endswith(".NET"):
         G = nx.Graph(nx.Graph(nx.read_pajek(sys.argv[1])))
     elif sys.argv[1].endswith(".graphml"):
         G = nx.Graph(nx.Graph(nx.read_graphml(sys.argv[1])))
