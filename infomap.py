@@ -37,7 +37,11 @@ def parse_infomaptree(filename):
 
 
 def do_markov_zoom(adj_mat, filename, time=None, n_attempts=10,
-                compute_modularities=True, do_plots=True):
+                   is_connected=False,
+                   n_timepoints=20,
+                   time_resolution=0.005,
+                   logstep=2,
+                   do_plots=True):
     """Runs the Michael Schaub et al. Markov Zooming algorithm.
 
     Parameters
@@ -86,37 +90,35 @@ def do_markov_zoom(adj_mat, filename, time=None, n_attempts=10,
     if not isinstance(adj_mat, np.ndarray):
         adj_mat = modularity.compute_adjacency_matrix(G)
 
-    nx.write_pajek(G, filename + '.net')
+    nx.write_graphml(G, filename + '.graphml')
 
     # compute connected components
-    connected_components = nx.connected_component_subgraphs(G)
+    if not is_connected:
+        connected_components = nx.connected_component_subgraphs(G)
+    else:
+        connected_components = [G]
 
-    if time is None:
-        time = np.logspace(-2, 2, num=9, base=10.)
+    logtime = xrange(0, n_timepoints * logstep, logstep)
 
-    modularities = None
-    if compute_modularities:
-        modularities = []
-
-    clustering_matrix = []
-    for j in xrange(len(time)):
-        t = time[j]
+    clustering_matrix = np.zeros((len(G_nodes), n_timepoints), dtype='int')
+    for k in xrange(len(connected_components)):
         print
-        print "+" * 80
-        print ('Zooming graph/network at Marvov time gap/resolution '
-               'of %f ..') % t
-        print "+" * 80
+        print "Zooming connected component number %i .." % k
+        print
+        H = connected_components[k]
+        H_adj_mat = modularity.compute_adjacency_matrix(H)
 
-        # compute flow matrix
-        colors = {}
-        color_count = 0
-        fufu = []
-        for k in xrange(len(connected_components)):
-            H = connected_components[k]
-            H_adj_mat = modularity.compute_adjacency_matrix(H)
+        logtime_flow = modularity.compute_logtime_flow(H_adj_mat, n_timepoints,
+                                                       logstep=logstep)
+        for j in xrange(n_timepoints):
+            t = logtime[j]
+            print
+            print '\tZooming log time step %i ' % t
+
+            # compute flow matrix
             input_markov_flow_filename = filename + ('%i_component_%i_markov_'
                                                      'flow') % (j, k)
-            flow_H = modularity.compute_flow_graph(H_adj_mat, t)
+            flow_H = nx.DiGraph(logtime_flow[:, :, j])
 
             # derive a directed grapth representing the computed flow dynamics
             H_nodes = H.nodes()
@@ -130,7 +132,7 @@ def do_markov_zoom(adj_mat, filename, time=None, n_attempts=10,
             markov_flow_infomaptree_filename = input_markov_flow_filename
             markov_flow_infomaptree_filename += '.tree'
             seed = random.randint(0, 10000)
-            commands.getoutput("infohiermap %s %s %s" % (
+            print commands.getoutput("infohiermap %s %s %s" % (
                     seed,
                     input_markov_flow_filename + '.net',
                     n_attempts))
@@ -139,95 +141,127 @@ def do_markov_zoom(adj_mat, filename, time=None, n_attempts=10,
             infomaptree = parse_infomaptree(markov_flow_infomaptree_filename)
             assert len(infomaptree) == len(H_nodes)
 
-            _colors = dict((G_nodes_map[x[2]], int(x[0].split(
-                            ':')[0]) + color_count)
-                          for x in infomaptree)
-            assert not [c for c in _colors.values() if c in fufu]
+            try:
+                _colors = dict((G_nodes_map[x[2]], int(x[0].split(
+                                ':')[0]) + clustering_matrix[:, j].max())
+                               for x in infomaptree)
+            except KeyError:
+                _colors = dict((G_nodes_map[int(x[2])], int(x[0].split(
+                                ':')[0]) + clustering_matrix[:, j].max())
+                               for x in infomaptree)
 
-            color_count += len(set(_colors.values()))
-            fufu += list(set(_colors.values()))
-
-            colors.update(_colors)
-
-        clustering_matrix.append(colors.values())
-        C = dict((c, [node
-                      for node, com in colors.iteritems() if com == c])
-                 for c in colors.values())
-
-        # compute modularity
-        if compute_modularities:
-            Q = modularity.compute_modularity_from_adjacency_matrix(
-                adj_mat,
-                C,
-                directed=G.is_directed())
-
-            modularities.append(Q)
+            clustering_matrix[_colors.keys(), j] = _colors.values()
 
     # generate plots
+    title = ("Markov Zooming: Optimal community structures for different "
+             "timescales (log-spaced), CTMC time-sampled once every %.3fs "
+             ) % time_resolution
+
     if do_plots:
         print "Generating plots .."
         display_markov_zoom(
-            G, np.array(clustering_matrix).T, time, modularities)
+            G, clustering_matrix, logtime, title=title)
 
-    return clustering_matrix, time, modularities
+    return clustering_matrix
 
 
-def display_markov_zoom(G, clustering_matrix, time, modularities):
+def display_markov_zoom(G, clustering_matrix, time, title=None):
+    """Function to display results of do_markov_zoom(..)
+
+    Parameters
+    ----------
+    G: nx.Graph object
+        Graph under consideration
+
+    clustering_matrix: 2 x 2 np.ndarray of shape of ints (#nodes, #time points)
+        clustering matrix for the network; each column contains the cluster
+        membership of nodes to modules, in at each markov time gap (resolution)
+
+    time: np.array
+        Markov time gaps/resolutions at which zooming has been done
+
+    title: string (optional, default None)
+        supertitle for all generated plots/subplots
+
+    """
+
     n, m = clustering_matrix.shape
-
-    assert len(time) == m
-    assert len(modularities) == m
-
     G_nodes = G.nodes()
 
+    Q_list = []
     n_cols = 4
     pos = nx.graphviz_layout(G)
     n_rows = (len(time) - 1) / n_cols
     n_rows += 1  # because subplots are counter from 1, not 0
     n_rows += 1  # becase we'll add a modularity plot at the end
     fig = plt.figure()
-    fig.suptitle((".oO Markov Zooming: Optimal community structures for "
-                  "different timescales (log-spaced) Oo."), fontsize=14)
+    title = title if not title is None else (
+        "Markov Zooming: Optimal community structures for "
+        "different timescales (log-spaced) ")
+
+    fig.suptitle(title, fontsize=14)
     for j in xrange(m):
         t = time[j]
-        Q = modularities[j]
+
+        modules = list(set(clustering_matrix[:, j]))
+        modules = dict((c, np.nonzero(clustering_matrix[:, j] == c)[0])
+                       for c in modules)
+
+        n_modules = len(modules)
+
+        # compute modularity
+        Q = modularity.compute_modularity(G, modules)
+        Q_list.append(Q)
 
         # generate color for nodes in each module
         node_color = np.zeros(len(G_nodes))
-        modules = set(clustering_matrix[:, j])
-        n_modules = len(modules)
         for color, c in zip(xrange(n_modules), modules):
             node_color[clustering_matrix[:, j] == c] = color
 
         # display colored graph proper
         ax = plt.subplot2grid((n_rows, n_cols),
                               np.unravel_index(j, (n_rows, n_cols)))
-        nx.draw(G, pos, node_color=node_color, with_labels=False,
-                node_size=30)
+        nx.draw(G, pos, node_color=node_color,
+                with_labels=False,
+                node_size=30,
+                )
 
         ax.axis('off')
-        subplot_title = 'Markov time gap: %.3f\nCommunities: %i' % (
+        subplot_title = 'Log time step: %.3f\nCommunities: %i' % (
             t, n_modules)
-        if not modularities is None:
-            subplot_title += '\nModularity: %.3f' % Q
+        subplot_title += '\nModularity: %.3f' % Q
         ax.set_title(subplot_title, fontsize=10)
 
     # plot modularity curve over timescales
     ax = plt.subplot2grid((n_rows, n_cols), (n_rows - 1, 0), colspan=n_cols,
                          rowspan=2)
 
-    if not modularities is None:
-        ax.plot(time, modularities)
-        ax.set_title("Modularity curve", fontsize=12)
-        ax.set_ylabel("modularity", fontsize=10)
-        ax.set_xlabel("time span", fontsize=10)
+    ax.plot(time, Q_list)
+    ax.set_title("Modularity curve", fontsize=12)
+    ax.set_ylabel("modularity", fontsize=10)
+    ax.set_xlabel("time span (logspace)", fontsize=10)
 
     # show plots
     plt.tight_layout(pad=0.5, w_pad=0, h_pad=0)
     plt.show()
 
 if __name__ == '__main__':
-    G = nx.Graph(nx.Graph(nx.read_pajek(sys.argv[2])))
-    time = np.logspace(-2, 2, num=12, base=10.)
+    # sanitize cmd-line
+    if len(sys.argv) < 2:
+        print ("\r\n\tUsage: python %s <path_to_network_pajek_or_graphml_file>"
+               ) % sys.argv[0]
+        print ("\tExample: python infomap.py "
+               "~/Downloads/univ_dataset_TSPE.graphml\r\n")
+        sys.exit(1)
 
-    do_markov_zoom(G, sys.argv[2], time)
+    if sys.argv[1].endswith(".net") or sys.argv[1].endswith(".paj"):
+        G = nx.Graph(nx.Graph(nx.read_pajek(sys.argv[1])))
+    elif sys.argv[1].endswith(".graphml"):
+        G = nx.Graph(nx.Graph(nx.read_graphml(sys.argv[1])))
+    elif sys.argv[1].endswith(".gml"):
+        G = nx.Graph(nx.Graph(nx.read_gml(sys.argv[1])))
+
+    # real business here
+    do_markov_zoom(G, sys.argv[1], n_timepoints=16,
+                   logstep=1,
+                   )
