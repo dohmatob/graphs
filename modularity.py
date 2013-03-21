@@ -79,22 +79,22 @@ def compute_modularity_matrix_from_adjacency_matrix(A):
 #         compute_adjacency_matrix(G))
 
 
-# def compute_steady_state_pi(adj_mat):
-#     """Computes the steady-stead distribution of a random walk on an undirected
-#     graph, Given its adjacency matrix.
+def compute_steady_state_pi(adj_mat):
+    """Computes the steady-stead distribution of a random walk on an undirected
+    graph, Given its adjacency matrix.
 
-#     Parameters
-#     ----------
-#     adj_mat: 2D array
-#         The adjacency matrix of the underlying graph
+    Parameters
+    ----------
+    adj_mat: 2D array
+        The adjacency matrix of the underlying graph
 
-#     Returns
-#     -------
-#     1D array
+    Returns
+    -------
+    1D array
 
-#     """
+    """
 
-#     return 1. * np.sum(adj_mat, axis=0) / np.sum(adj_mat)  # d_j / 2|E|
+    return 1. * np.sum(adj_mat, axis=0) / np.sum(adj_mat)  # d_j / 2|E|
 
 
 def compute_transition_rates(adj_mat):
@@ -125,6 +125,40 @@ def compute_transition_rates(adj_mat):
     M = D.dot(adj_mat)
 
     return M
+
+
+def compute_CTMC_flow(adj_mat, time):
+    """Computes the CTMC (Continous-Time Markov Chain) flow associated with
+    given graph, over a set of time instants
+
+    Parameters
+    ----------
+    adj_mat: 2D array-like
+        the adjacency matrix of the underlying graph
+
+    time: 1D array-like
+        time instants we want to compute CTMC flow for
+
+    Returns
+    -------
+    3D array, corrsponding to the flow (one per time point) orderly packed
+    together into an film
+
+    """
+
+    n = len(adj_mat)
+    T = len(time)
+
+    degrees = np.sum(adj_mat, axis=0) * 1.
+    D = scipy.sparse.csr_matrix(np.diag(degrees))
+    Dinv = scipy.sparse.csr_matrix(np.diag(1. / degrees))
+    generator_mat = Dinv.dot(adj_mat) - np.eye(n)
+
+    flow = np.zeros((n, n, T))
+    for j in xrange(T):
+        flow[:, :, j] = D.dot(scipy.linalg.expm(time[j] * generator_mat))
+
+    return flow
 
 
 def compute_logtime_flow(adj_mat, n_timepoints, time_resolution=0.005,
@@ -184,22 +218,24 @@ def compute_logtime_flow(adj_mat, n_timepoints, time_resolution=0.005,
     trans_mat = compute_transition_rates(adj_mat)
 
     # compute generator matrix
-    U = trans_mat * time_resolution
+    U = (trans_mat - np.eye(n)) * time_resolution
+    print U.sum(axis=1)
     P = np.eye(n) - np.diag(U.sum(axis=1)) + U
 
     # iteratively compute flow
     step = 2 ** logstep
     Q = scipy.sparse.csr_matrix(P)
     for k in xrange(n_timepoints):
-        print Q
-        print
+        # print Q
+        # print
 
-        # compute flow ate time[k]
+        # compute flow at time[k]
         flow[:, :, k] = D.dot(Q).toarray()
 
         # # threshold the flow
         # for i in xrange(n):
         #     threshold = scipy.stats.scoreatpercentile(flow[i, :, k], 7)
+        #     print len(np.nonzero((0 < flow[i, :, k]) & (flow[i, :, k] < threshold))[0])
         #     flow[i, flow[i, :, k] < threshold, k] = 0.
 
         # update: Q = Q^(2^logstep)
@@ -271,77 +307,77 @@ def compute_modularity(G, partition):
         )
 
 
-# def improved_2_split(B_g, s_g):
-#     n_g = len(s_g)
-#     s_g = np.array(s_g)
-#     unmoved = list(xrange(n_g))
+def improved_2_split(B_g, s_g):
+    n_g = len(s_g)
+    s_g = np.array(s_g)
+    unmoved = list(xrange(n_g))
 
-#     for i in xrange(n_g):
-#         score = np.zeros(len(unmoved))
-#         Q_0 = 0.5 * np.dot(s_g.T, np.dot(B_g, s_g))
-#         for k in xrange(len(unmoved)):
-#             s_g[unmoved[k]] *= -1
-#             score[k] = 0.5 * np.dot(s_g.T, np.dot(B_g, s_g)) - Q_0
-#             s_g[unmoved[k]] *= -1
+    for i in xrange(n_g):
+        score = np.zeros(len(unmoved))
+        Q_0 = 0.5 * np.dot(s_g.T, np.dot(B_g, s_g))
+        for k in xrange(len(unmoved)):
+            s_g[unmoved[k]] *= -1
+            score[k] = 0.5 * np.dot(s_g.T, np.dot(B_g, s_g)) - Q_0
+            s_g[unmoved[k]] *= -1
 
-#         j_ = np.argmax(score)
-#         if score[j_] > 0:
-#             s_g[j_] *= -1
-#             unmoved.remove(unmoved[j_])
-#         else:
-#             break
+        j_ = np.argmax(score)
+        if score[j_] > 0:
+            s_g[j_] *= -1
+            unmoved.remove(unmoved[j_])
+        else:
+            break
 
-#     return s_g
-
-
-# def compute_B_g(B, g):
-#     B_g = B[g, :][:, g]
-#     B_g -= np.diag(B_g.sum(axis=0))
-
-#     return B_g
+    return s_g
 
 
-# def split_module(B, g):
-#     """Tries to split split a module g.
+def compute_B_g(B, g):
+    B_g = B[g, :][:, g]
+    B_g -= np.diag(B_g.sum(axis=0))
 
-#     Parameters
-#     ----------
-#     B: numpy 2D array
-#         modularity matrix of underlying graph/network
-#     g: array-like
-#         module to be splitted
+    return B_g
 
 
-#     Returns
-#     -------
-#     A piece of g (or g, if can't split)
+def split_module(B, g):
+    """Tries to split split a module g.
 
-#     """
+    Parameters
+    ----------
+    B: numpy 2D array
+        modularity matrix of underlying graph/network
+    g: array-like
+        module to be splitted
 
-#     # slice B with g x g
-#     n_g = len(g)
-#     B_g = compute_B_g(B, g)
 
-#     # compute the spectrum (sorted by ascending eigen values) of B_g
-#     eig_vals, eig_vecs = np.linalg.eig(B_g)
-#     sort_perm = np.argsort(eig_vals)
-#     eig_vals = eig_vals[sort_perm]
-#     eig_vecs = eig_vecs[sort_perm]
+    Returns
+    -------
+    A piece of g (or g, if can't split)
 
-#     # try to split g
-#     if eig_vals[-1] > 0:
-#         s_g = np.ones(n_g)
-#         s_g[eig_vecs[-1] < 0] = -1
-#         s_g = improved_2_split(B_g, s_g)
-#         dQ = 0.5 * np.dot(s_g.T, np.dot(B_g, s_g))
-#         if dQ > 0:
-#             g_1 = np.array(g)[np.nonzero(s_g > 0)[0]]
+    """
 
-#             # return chopped-off component of g
-#             return g_1
+    # slice B with g x g
+    n_g = len(g)
+    B_g = compute_B_g(B, g)
 
-#     # g is indivisible
-#     return g
+    # compute the spectrum (sorted by ascending eigen values) of B_g
+    eig_vals, eig_vecs = np.linalg.eig(B_g)
+    sort_perm = np.argsort(eig_vals)
+    eig_vals = eig_vals[sort_perm]
+    eig_vecs = eig_vecs[sort_perm]
+
+    # try to split g
+    if eig_vals[-1] > 0:
+        s_g = np.ones(n_g)
+        s_g[eig_vecs[-1] < 0] = -1
+        s_g = improved_2_split(B_g, s_g)
+        dQ = 0.5 * np.dot(s_g.T, np.dot(B_g, s_g))
+        if dQ > 0:
+            g_1 = np.array(g)[np.nonzero(s_g > 0)[0]]
+
+            # return chopped-off component of g
+            return g_1
+
+    # g is indivisible
+    return g
 
 
 # def newman_split(G):
