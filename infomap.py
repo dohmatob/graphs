@@ -337,7 +337,7 @@ if __name__ == '__main__':
         print ("\r\n\tUsage: python %s <path_to_network_pajek_or_graphml_file>"
                ) % sys.argv[0]
         print ("\tExample: python infomap.py "
-               "~/Downloads/univ_dataset_TSPE.graphml\r\n")
+               "example_data/univ_dataset_TSPE.graphml\r\n")
         sys.exit(1)
 
     if sys.argv[1].endswith(".net") or sys.argv[1].endswith(".paj")\
