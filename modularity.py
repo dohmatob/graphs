@@ -127,6 +127,15 @@ def compute_transition_rates(adj_mat):
     return M
 
 
+def compute_infinitesimal_generator(adj_mat):
+    n = len(adj_mat)
+
+    degrees = np.sum(adj_mat, axis=0) * 1.
+    Dinv = scipy.sparse.csr_matrix(np.diag(1. / degrees))
+
+    return Dinv.dot(adj_mat) - np.eye(n)
+
+
 def compute_CTMC_flow(adj_mat, time):
     """Computes the CTMC (Continous-Time Markov Chain) flow associated with
     given graph, over a set of time instants
@@ -151,8 +160,7 @@ def compute_CTMC_flow(adj_mat, time):
 
     degrees = np.sum(adj_mat, axis=0) * 1.
     D = scipy.sparse.csr_matrix(np.diag(degrees))
-    Dinv = scipy.sparse.csr_matrix(np.diag(1. / degrees))
-    generator_mat = Dinv.dot(adj_mat) - np.eye(n)
+    generator_mat = compute_infinitesimal_generator(adj_mat)
 
     flow = np.zeros((n, n, T))
     for j in xrange(T):
@@ -169,10 +177,13 @@ def compute_modularity_from_adjacency_matrix(adj_mat, partition,
     if directed:
         n_edges *= 2
 
-    # S[c, n] is 1 if node n is in community c; 0 otherwise
-    S = np.zeros((m, n_nodes))
-    for j, c in zip(xrange(m), partition):
-        S[j, partition[c]] = 1
+    if isinstance(partition, np.ndarray):
+        S = partition.T
+    else:
+        # S[c, n] is 1 if node n is in community c; 0 otherwise
+        S = np.zeros((m, n_nodes))
+        for j, c in zip(xrange(m), partition):
+            S[j, partition[c]] = 1
 
     B = compute_modularity_matrix_from_adjacency_matrix(adj_mat)
 
