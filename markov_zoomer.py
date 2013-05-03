@@ -183,7 +183,17 @@ def display_markov_zoom(G, clustering_matrix, time, title=None):
     Q_list = []
     N_list = []
     n_cols = 4
-    pos = nx.spring_layout(G)
+
+    # define graph layout
+    try:
+        import pygraphviz
+        print ("N.B:- Using pygraphviz layout (version:"
+               " %s)") % pygraphviz.__version__
+        pos = nx.graphviz_layout(G)
+    except ImportError:
+        print "N.B.:- Using Fruchterman-Reignold layout"
+        pos = nx.fruchterman_reingold_layout(G)
+
     n_rows = (len(time) - 1) / n_cols
     n_rows += 1  # because subplots are counter from 1, not 0
     n_rows += 1  # becase we'll add a modularity plot at the end
