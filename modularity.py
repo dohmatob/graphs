@@ -127,6 +127,24 @@ def compute_transition_rates(adj_mat):
     return M
 
 
+def compute_laplacian(adj_mat, normalized=False):
+    # compute the node degrees
+    degrees = np.sum(adj_mat, axis=0)
+    degrees[degrees == 0] = adj_mat.shape[0]
+
+    # compute D = diag(1 / degree_i), for each node i
+    D = np.diag(degrees)
+
+    # compute laplacian
+    L = D - adj_mat
+
+    if normalized:
+        Z = np.diag(np.sqrt(1. / np.diag(D)))
+        L = np.dot(Z, np.dot(L, Z))
+
+    return L
+
+
 def compute_infinitesimal_generator(adj_mat):
     n = len(adj_mat)
 
@@ -167,6 +185,28 @@ def compute_CTMC_flow(adj_mat, time):
         flow[:, :, j] = D.dot(scipy.linalg.expm(time[j] * generator_mat))
 
     return flow
+
+
+def compute_modularity_from_modularity_matrix(
+    B, partition,
+    n_edges=None,
+    directed=False):
+    m = len(partition)
+    n_nodes = B.shape[0]
+
+    if isinstance(partition, np.ndarray):
+        S = partition.T
+    else:
+        # S[c, n] is 1 if node n is in community c; 0 otherwise
+        S = np.zeros((m, n_nodes))
+        for j, c in zip(xrange(m), partition):
+            S[j, partition[c]] = 1
+
+    Q = np.trace(np.dot(S, np.dot(B, S.T)))
+    if n_edges:
+        Q /= n_edges
+
+    return Q
 
 
 def compute_modularity_from_adjacency_matrix(adj_mat, partition,
